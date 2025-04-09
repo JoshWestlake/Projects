@@ -1,0 +1,361 @@
+// MREN 303 Pico W Wifi Gamepad Read and Switch Modes
+// Written For MREN 303 
+
+#include <WiFi.h>
+#include <WiFiUdp.h>
+#include <Servo.h>
+#include <Wire.h>
+
+Servo myservo; 
+
+#ifndef STASSID
+#define STASSID "JoshWestlake"
+#define STAPSK "12345678"
+#endif
+
+// Define servo motor pins
+const int SERVO1_PIN = 0;
+const int SERVO2_PIN = 2;
+const int SERVO3_PIN = 4;
+
+// Define motor driver pins
+const int PWMA = 27;
+const int A12 = 26;
+const int A11 = 22;
+const int STBY = 16;
+const int B11_PIN = 21; 
+const int B12 = 20;
+const int PWMB = 19;
+
+Servo servo1, servo2, servo3;
+
+
+
+unsigned int localPort = 8888;  // local port to listen on
+
+// buffers for receiving and sending data
+char packetBuffer[UDP_TX_PACKET_MAX_SIZE + 1];  // buffer to hold incoming packet,
+char ReplyBuffer[] = "acknowledged\r\n";        // a string to send back
+// char Arrays to match commands from gamepad 
+char stringA[17] =    "A Button Press";
+char stringB[17] =    "B Button Press";
+char stringY[17] =    "Y Button Press";
+char stringX[17] =    "X Button Press";
+char stringLB[17] =   "LB Button Press";
+char stringRB[17] =   "RB Button Press";
+char stringLS[17] =   "L Stick Press";
+char stringRS[17] =   "R Stick Press";
+char stringBack[17]=  "Back Press";
+char stringStart[17]= "Start Press";
+char stringUp[17] =   "Up Dpad Press";
+char stringDown[17] = "Down Dpad Press";
+char stringLeft[17] = "Left Dpad Press";
+char stringRight[17]= "Right Dpad Press";
+char stringLX[17] =   "L Stick X Value ";
+char stringLY[17] =   "L Stick Y Value ";
+char stringRX[17] =   "R Stick X Value ";
+char stringRY[17] =   "R Stick Y Value ";
+char stringLT[17] =   "L Trigger Value ";
+char stringRT[17] =   "R Trigger Value ";
+
+int valueLx = 0;
+int valueLy = 0;
+int valueRx = 0;
+int valueRy = 0;
+int valueLt = 0;
+int valueRt = 0; 
+
+//game modes
+const int IDLE_MODE = 0;
+const int AUTO_MODE = 1;
+const int MANUAL_MODE = 2;
+int current_mode = IDLE_MODE; // Variable to store the current mode. Starts in idle mode
+
+unsigned long startTime = 0;  // Variable to store the start time
+unsigned long currentTime = 0; // Variable to store the current time
+
+WiFiUDP Udp;
+
+void setup() { //This handles network function and runs on core 1
+  Serial.begin(115200);
+  WiFi.begin(STASSID, STAPSK);
+  while (WiFi.status() != WL_CONNECTED) {
+    Serial.print('.');
+    delay(500);
+  }
+  Serial.print("Connected! IP address: ");
+  Serial.println(WiFi.localIP());
+  Serial.printf("UDP server on port %d\n", localPort);
+  Udp.begin(localPort);
+
+}
+void setup1(){ //This handles all inputs and outputs and runs on core 2
+  
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN,0);
+  
+  // Attach servos
+    servo1.attach(SERVO1_PIN);
+    servo2.attach(SERVO2_PIN);
+    servo3.attach(SERVO3_PIN);
+
+    // Set motor driver pins as outputs
+    pinMode(PWMA, OUTPUT);
+    pinMode(A12, OUTPUT);
+    pinMode(A11, OUTPUT);
+    pinMode(STBY, OUTPUT);
+    pinMode(B11_PIN, OUTPUT); // Updated name here
+    pinMode(B12, OUTPUT);
+    pinMode(PWMB, OUTPUT);
+
+    digitalWrite(STBY, HIGH); // Ensure motors are enabled
+
+}
+
+void loop() { //This loop executes on Core 1 of the Pico, handles networking and recieves commands
+  // if there's data available, read a packet
+  int packetSize = Udp.parsePacket();
+  if (packetSize) {
+    Serial.printf("Received packet of size %d from %s:%d\n    (to %s:%d)\n", packetSize, Udp.remoteIP().toString().c_str(), Udp.remotePort(), Udp.destinationIP().toString().c_str(), Udp.localPort());
+
+    // read the packet into packetBufffer
+    int n = Udp.read(packetBuffer, UDP_TX_PACKET_MAX_SIZE);
+    packetBuffer[n] = 0;
+
+    char comparisonString[17] = "";
+    char valueString[5] = "";
+
+    for (int i=0; i<16 ; i++){
+      comparisonString[i]=packetBuffer[i];
+    }
+    comparisonString[16] = 0;
+    
+    Serial.println("Comp String:");
+    Serial.println(comparisonString);
+
+    if (strcmp(comparisonString,stringA) == 0){
+      if (current_mode == IDLE_MODE){ // You can only go to auto mode from idle mode
+        Serial.println("Setting mode to auto");//this line may be removed for final version
+        current_mode = AUTO_MODE; // Change to auto mode
+        startTime = millis();  // Start recording the time
+      }           
+    }
+    if (strcmp(comparisonString,stringB) == 0){
+      Serial.println("Setting mode to manual");//this line may be removed for final version
+      current_mode = MANUAL_MODE; // Change to manual mode
+    }
+    if (strcmp(comparisonString,stringY) == 0){
+      Serial.println("Setting mode to idle");//this line may be removed for final version
+      current_mode = IDLE_MODE; // Change to idle mode
+    }   
+    if (strcmp(comparisonString,stringLX) == 0){
+      for(int i=16; i<=packetSize ; i++){
+        valueString[(i-16)] = packetBuffer[i];}
+      valueString[5] = 0;
+      valueLx = atoi(valueString);
+      Serial.println("LX Value is:");
+      Serial.println(valueLx);
+    }
+    if (strcmp(comparisonString,stringLY) == 0){
+      for(int i=16; i<=packetSize ; i++){
+        valueString[(i-16)] = packetBuffer[i];}
+      valueString[5] = 0;
+      valueLy = atoi(valueString);
+      Serial.println("LY Value is:");
+      Serial.println(valueLy);
+    }
+    if (strcmp(comparisonString,stringRX) == 0){
+      for(int i=16; i<=packetSize ; i++){
+        valueString[(i-16)] = packetBuffer[i];}
+      valueString[5] = 0;
+      valueRx = atoi(valueString);
+      Serial.println("RX Value is:");
+      Serial.println(valueRx);
+    }
+    if (strcmp(comparisonString,stringRY) == 0){
+      for(int i=16; i<=packetSize ; i++){
+        valueString[(i-16)] = packetBuffer[i];}
+      valueString[5] = 0;
+      valueRy = atoi(valueString);
+      Serial.println("RY Value is:");
+      Serial.println(valueRy);
+    }
+    if (strcmp(comparisonString,stringRT) == 0){
+      for(int i=16; i<=packetSize ; i++){
+        valueString[(i-16)] = packetBuffer[i];}
+      valueString[5] = 0;
+      valueRt = atoi(valueString);
+      Serial.println("RT Value is:");
+      Serial.println(valueRt);
+    }
+    if (strcmp(comparisonString,stringLT) == 0){
+      for(int i=16; i<=packetSize ; i++){
+        valueString[(i-16)] = packetBuffer[i];}
+      valueString[5] = 0;
+      valueLt = atoi(valueString);
+      Serial.println("LT Value is:");
+      Serial.println(valueLt);
+    }
+    
+    // send a reply, to the IP address and port that sent us the packet we received
+    Udp.beginPacket(Udp.remoteIP(), Udp.remotePort());
+    Udp.write(ReplyBuffer);
+    Udp.endPacket();
+  }
+}
+
+void loop1(){ //This Runs on Core 2 and performs all inputs and outputs
+
+currentTime = millis();
+
+// After spending more than 30 s in auto mode:
+if ((current_mode == AUTO_MODE) && (currentTime - startTime) >= 30000) {
+  Serial.println("TIME OUT: changing to manual mode");//this line may be removed for final version
+  current_mode = MANUAL_MODE; // Change to manual mode
+  }
+studentCode(current_mode);
+delay(15);
+
+}
+
+// YOUR CODING GOES HERE
+void studentCode(int current_mode){ 
+  int rightMotorSpeed=0;
+  int leftMotorSpeed=0;
+  static int servoAngle3 = 0;
+  static int servoAngle2 = 180;
+  if(current_mode == IDLE_MODE){
+   //Serial.println("You are in idle mode");//this line may be removed for final version
+   digitalWrite(LED_BUILTIN, LOW); // LED is off for idle mode
+   // Initialize motors state as off
+    digitalWrite(STBY, HIGH);
+    digitalWrite(A11, LOW);
+    digitalWrite(A12, LOW);
+    digitalWrite(PWMA, HIGH);
+    digitalWrite(B11_PIN, LOW);
+    digitalWrite(B12, LOW);
+    digitalWrite(PWMB, HIGH);
+    // No further action required
+  }
+  else if (current_mode == AUTO_MODE){
+    Serial.println("You are in auto mode");//this line may be removed for final version
+    digitalWrite(LED_BUILTIN, LOW); // LED is off for auto mode
+    // Write additional commands for autonomous mode
+    //CAUTION: YOU CANNOT PRESS ANY BUTTONS WHILE IN AUTO MODE UNLESS YOU PASS THE GATE (in this case, press B to go to manual mode)
+  }
+  else if (current_mode == MANUAL_MODE){
+      Serial.println("You are in manual mode");
+      digitalWrite(LED_BUILTIN, HIGH);
+
+        int angleChange = map(valueRy, -255, 255, 0, 180);
+        if (valueRy > 50){ 
+          servoAngle3 += 1;
+          servoAngle2 -=1;
+          Serial.print("Increasing angle");
+        }
+        else if(valueRy < -50){
+          servoAngle3 -= 1;
+          servoAngle2 += 1;
+          Serial.print("Decreasing angle");
+        }
+        servoAngle3 = constrain(servoAngle3, 0 ,180);
+        servoAngle2 = constrain(servoAngle2, 0 ,180);
+       // Move servo to mapped position
+        servo3.writeMicroseconds(map(servoAngle3, 0, 180, 500, 2500));
+        servo2.writeMicroseconds(map(servoAngle2, 0, 180, 500, 2500));
+    
+        Serial.print("Servo Angle: ");
+        Serial.println(servoAngle3);
+        Serial.println(servoAngle2);
+        // Calculate motor speeds based on stick position
+        if (valueLy > 0){
+          leftMotorSpeed = valueLy+(0.3)*valueLx;
+          rightMotorSpeed = valueLy-(0.3)*valueLx;
+        }
+        else{
+          leftMotorSpeed = valueLy-(0.3)*valueLx;
+          rightMotorSpeed = -(-valueLy+(0.3)*valueLx);
+        }
+        // Constrain values to valid range (-255 to 255)
+        leftMotorSpeed = constrain(leftMotorSpeed, -255, 255);
+        rightMotorSpeed = constrain(rightMotorSpeed, -255, 255);
+        
+        // Drive left motor
+        if (rightMotorSpeed > 0) {
+            digitalWrite(A11, LOW);
+            digitalWrite(A12, HIGH);
+           
+        } else if (rightMotorSpeed < 0) {
+            digitalWrite(A11, HIGH);
+            digitalWrite(A12, LOW);
+        } else {
+            digitalWrite(A11, LOW);
+            digitalWrite(A12, LOW);
+        }
+        analogWrite(PWMA, abs(rightMotorSpeed));
+
+        // Drive right motor
+        if (leftMotorSpeed > 0) {
+            
+            digitalWrite(B11_PIN, LOW);
+            digitalWrite(B12, HIGH);
+        } else if (leftMotorSpeed < 0) {
+            digitalWrite(B11_PIN, HIGH);
+            digitalWrite(B12, LOW);
+        } else {
+            digitalWrite(B11_PIN, LOW);
+            digitalWrite(B12, LOW);
+        }
+        analogWrite(PWMB, abs(leftMotorSpeed));
+    
+  }
+}
+void runMotors(bool forward) {
+    digitalWrite(STBY, HIGH); // Ensure motors are enabled
+
+    if (forward) {
+        // Motor A forward
+        digitalWrite(A11, LOW);
+        digitalWrite(A12, HIGH);
+        
+        // Motor B forward
+        digitalWrite(B11_PIN, HIGH);
+        digitalWrite(B12, LOW);
+    } else {
+        // Motor A backward
+        digitalWrite(A11, HIGH);
+        digitalWrite(A12, LOW);
+        
+        // Motor B backward
+        digitalWrite(B11_PIN, LOW);
+        digitalWrite(B12, HIGH);
+    }
+
+    analogWrite(PWMA, 255);
+    analogWrite(PWMB, 255);
+}
+void stopMotors() {
+    analogWrite(PWMA, 0);
+    analogWrite(PWMB, 0);
+}
+void sweepServo(Servo &servo) {
+    for (int i = 0; i <= 180; i++) {
+        servo.write(i);
+        delay(20);
+    }
+
+    delay(500);
+
+    for (int i = 180; i >= 0; i--) {
+        servo.write(i);
+        delay(20);
+    }
+}
+
+
+
+
+
+
+
+
